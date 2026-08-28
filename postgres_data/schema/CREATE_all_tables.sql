@@ -25,7 +25,7 @@ CREATE SCHEMA IF NOT EXISTS etl;
 -- ----------------------------------------------------------------------------
 -- Таблиця: currencies
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.currencies (
+CREATE TABLE IF NOT EXISTS core.currencies (
     currency_code  CHAR(3) PRIMARY KEY,
     currency_name  VARCHAR(100) NOT NULL,
     symbol         VARCHAR(5),
@@ -39,7 +39,7 @@ COMMENT ON TABLE core.currencies IS 'Довідник валют (ISO 4217)';
 -- ----------------------------------------------------------------------------
 -- Таблиця: units_of_measure
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.units_of_measure (
+CREATE TABLE IF NOT EXISTS core.units_of_measure (
     unit_code  VARCHAR(20) PRIMARY KEY,
     erp_id     VARCHAR(50) UNIQUE,
     unit_name  VARCHAR(100) NOT NULL,
@@ -56,10 +56,14 @@ COMMENT ON COLUMN core.units_of_measure.erp_id IS 'ERP-код одиниці в�
 -- ----------------------------------------------------------------------------
 -- Таблиця: uom_conversions
 -- ----------------------------------------------------------------------------
-ALTER TABLE core.units_of_measure
-    ADD CONSTRAINT unique_unit_code_type UNIQUE (unit_code, unit_type);
+-- ADD CONSTRAINT не підтримує IF NOT EXISTS у Postgres — глушимо duplicate_object
+DO $$ BEGIN
+    ALTER TABLE core.units_of_measure
+        ADD CONSTRAINT unique_unit_code_type UNIQUE (unit_code, unit_type);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE core.uom_conversions (
+CREATE TABLE IF NOT EXISTS core.uom_conversions (
     from_unit         VARCHAR(20)    NOT NULL,
     from_unit_type    VARCHAR(30)    NOT NULL,
     to_unit           VARCHAR(20)    NOT NULL,
@@ -77,7 +81,7 @@ COMMENT ON TABLE core.uom_conversions IS 'Коефіцієнти конверт�
 -- ----------------------------------------------------------------------------
 -- Таблиця: exchange_rates
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.exchange_rates (
+CREATE TABLE IF NOT EXISTS core.exchange_rates (
     from_currency CHAR(3) NOT NULL REFERENCES core.currencies (currency_code),
     to_currency   CHAR(3) NOT NULL REFERENCES core.currencies (currency_code),
     valid_from    DATE NOT NULL,
@@ -93,7 +97,7 @@ CREATE TABLE core.exchange_rates (
 
 COMMENT ON TABLE core.exchange_rates IS 'Курси валют з захистом від перекриття періодів';
 
-CREATE INDEX idx_exchange_rates_valid ON core.exchange_rates (valid_from, valid_to);
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_valid ON core.exchange_rates (valid_from, valid_to);
 
 -- ============================================================================
 -- ЧАСТИНА 3: CORE ТАБЛИЦІ
@@ -102,7 +106,7 @@ CREATE INDEX idx_exchange_rates_valid ON core.exchange_rates (valid_from, valid_
 -- ----------------------------------------------------------------------------
 -- Таблиця: clients
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.clients (
+CREATE TABLE IF NOT EXISTS core.clients (
     client_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     erp_id       VARCHAR(50) NOT NULL UNIQUE,
     client_name  VARCHAR(200) NOT NULL,
@@ -119,13 +123,13 @@ CREATE TABLE core.clients (
 COMMENT ON TABLE core.clients IS 'Довідник клієнтів';
 COMMENT ON COLUMN core.clients.erp_id IS 'ERP-код клієнта. ERP — master, локальне створення заборонене.';
 
-CREATE INDEX idx_clients_erp_id ON core.clients (erp_id);
-CREATE INDEX idx_clients_group ON core.clients (client_group);
+CREATE INDEX IF NOT EXISTS idx_clients_erp_id ON core.clients (erp_id);
+CREATE INDEX IF NOT EXISTS idx_clients_group ON core.clients (client_group);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: users
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.users (
+CREATE TABLE IF NOT EXISTS core.users (
     user_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_name  VARCHAR(200) NOT NULL,
     email      VARCHAR(100) UNIQUE,
@@ -136,12 +140,12 @@ CREATE TABLE core.users (
 
 COMMENT ON TABLE core.users IS 'Довідник користувачів системи';
 
-CREATE INDEX idx_users_role ON core.users (role);
+CREATE INDEX IF NOT EXISTS idx_users_role ON core.users (role);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: legal_entities
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.legal_entities (
+CREATE TABLE IF NOT EXISTS core.legal_entities (
     legal_entity_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     legal_entity_name VARCHAR(300) NOT NULL,
     tax_code          VARCHAR(20) UNIQUE,
@@ -155,7 +159,7 @@ COMMENT ON TABLE core.legal_entities IS 'Юридичні особи';
 -- ----------------------------------------------------------------------------
 -- Таблиця: processes
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.processes (
+CREATE TABLE IF NOT EXISTS core.processes (
     process_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     process_name VARCHAR(200) NOT NULL,
     description  TEXT,
@@ -167,7 +171,7 @@ COMMENT ON TABLE core.processes IS 'Бізнес-процеси';
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_statuses
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_statuses (
+CREATE TABLE IF NOT EXISTS core.order_statuses (
     status_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     status_name VARCHAR(100) NOT NULL,
     status_code VARCHAR(30) UNIQUE,
@@ -181,7 +185,7 @@ COMMENT ON TABLE core.order_statuses IS 'Довідник статусів за�
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_sources
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_sources (
+CREATE TABLE IF NOT EXISTS core.order_sources (
     order_source_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_name     VARCHAR(100) NOT NULL,
     source_code     VARCHAR(30) UNIQUE,
@@ -197,7 +201,7 @@ COMMENT ON TABLE core.order_sources IS 'Джерела замовлень';
 -- ----------------------------------------------------------------------------
 -- Таблиця: payment_categories
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.payment_categories (
+CREATE TABLE IF NOT EXISTS core.payment_categories (
     category_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     category_name VARCHAR(100) NOT NULL,
     category_code VARCHAR(30) UNIQUE,
@@ -209,7 +213,7 @@ COMMENT ON TABLE core.payment_categories IS 'Категорії платежів
 -- ----------------------------------------------------------------------------
 -- Таблиця: accounts
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.accounts (
+CREATE TABLE IF NOT EXISTS core.accounts (
     account_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     account_name    VARCHAR(200) NOT NULL,
     account_number  VARCHAR(50),
@@ -220,7 +224,7 @@ CREATE TABLE core.accounts (
 
 COMMENT ON TABLE core.accounts IS 'Банківські рахунки';
 
-CREATE INDEX idx_accounts_currency ON core.accounts (currency_code);
+CREATE INDEX IF NOT EXISTS idx_accounts_currency ON core.accounts (currency_code);
 
 -- ============================================================================
 -- ЧАСТИНА 5: CATALOG ТАБЛИЦІ
@@ -229,7 +233,7 @@ CREATE INDEX idx_accounts_currency ON core.accounts (currency_code);
 -- ----------------------------------------------------------------------------
 -- Таблиця: product_categories
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.product_categories (
+CREATE TABLE IF NOT EXISTS core.product_categories (
     category_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_id         UUID REFERENCES core.product_categories (category_id),
     category_name     VARCHAR(200) NOT NULL,
@@ -240,13 +244,13 @@ CREATE TABLE core.product_categories (
 
 COMMENT ON TABLE core.product_categories IS 'Ієрархія категорій товарів (Materialized Path)';
 
-CREATE INDEX idx_product_categories_parent ON core.product_categories (parent_id);
-CREATE INDEX idx_cat_path ON core.product_categories USING btree (materialized_path text_pattern_ops);
+CREATE INDEX IF NOT EXISTS idx_product_categories_parent ON core.product_categories (parent_id);
+CREATE INDEX IF NOT EXISTS idx_cat_path ON core.product_categories USING btree (materialized_path text_pattern_ops);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: products
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.products (
+CREATE TABLE IF NOT EXISTS core.products (
     product_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     erp_id       VARCHAR(50) NOT NULL UNIQUE,
     category_id  UUID REFERENCES core.product_categories (category_id),
@@ -264,10 +268,10 @@ CREATE TABLE core.products (
 COMMENT ON TABLE core.products IS 'Довідник товарів';
 COMMENT ON COLUMN core.products.erp_id IS 'ERP-код товару. ERP — master, локальне створення заборонене.';
 
-CREATE INDEX idx_products_erp_id ON core.products (erp_id);
-CREATE INDEX idx_products_category ON core.products (category_id);
-CREATE INDEX idx_products_sku ON core.products (sku);
-CREATE INDEX idx_products_barcode ON core.products (barcode);
+CREATE INDEX IF NOT EXISTS idx_products_erp_id ON core.products (erp_id);
+CREATE INDEX IF NOT EXISTS idx_products_category ON core.products (category_id);
+CREATE INDEX IF NOT EXISTS idx_products_sku ON core.products (sku);
+CREATE INDEX IF NOT EXISTS idx_products_barcode ON core.products (barcode);
 
 -- ============================================================================
 -- ЧАСТИНА 6: WAREHOUSE ТАБЛИЦІ
@@ -276,7 +280,7 @@ CREATE INDEX idx_products_barcode ON core.products (barcode);
 -- ----------------------------------------------------------------------------
 -- Таблиця: storages
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.storages (
+CREATE TABLE IF NOT EXISTS core.storages (
     storage_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     erp_id                VARCHAR(50) NOT NULL UNIQUE,
     storage_name          VARCHAR(200) NOT NULL,
@@ -291,14 +295,14 @@ CREATE TABLE core.storages (
 COMMENT ON TABLE core.storages IS 'Довідник складів';
 COMMENT ON COLUMN core.storages.erp_id IS 'ERP-код складу. ERP — master, локальне створення заборонене.';
 
-CREATE INDEX idx_storages_erp_id ON core.storages (erp_id);
-CREATE INDEX idx_storages_type ON core.storages (storage_type);
-CREATE INDEX idx_storages_responsible ON core.storages (responsible_user_id);
+CREATE INDEX IF NOT EXISTS idx_storages_erp_id ON core.storages (erp_id);
+CREATE INDEX IF NOT EXISTS idx_storages_type ON core.storages (storage_type);
+CREATE INDEX IF NOT EXISTS idx_storages_responsible ON core.storages (responsible_user_id);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: storage_balances
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.storage_balances (
+CREATE TABLE IF NOT EXISTS core.storage_balances (
     storage_id       UUID NOT NULL REFERENCES core.storages (storage_id),
     product_id       UUID NOT NULL REFERENCES core.products (product_id),
     product_serial   VARCHAR(100) NOT NULL DEFAULT 'N/A',
@@ -317,13 +321,13 @@ COMMENT ON TABLE core.storage_balances IS 'Поточні залишки тов�
 COMMENT ON COLUMN core.storage_balances.product_serial IS 'Серійний номер. Для несеріалізованих товарів — ''N/A''';
 COMMENT ON COLUMN core.storage_balances.product_lot_id IS 'Номер партії. Для товарів без партій — ''N/A''';
 
-CREATE INDEX idx_storage_balances_product ON core.storage_balances (product_id);
-CREATE INDEX idx_storage_balances_lot ON core.storage_balances (product_lot_id);
+CREATE INDEX IF NOT EXISTS idx_storage_balances_product ON core.storage_balances (product_id);
+CREATE INDEX IF NOT EXISTS idx_storage_balances_lot ON core.storage_balances (product_lot_id);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: storage_operations
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.storage_operations (
+CREATE TABLE IF NOT EXISTS core.storage_operations (
     operation_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     operation_type             VARCHAR(30) NOT NULL CHECK (
         operation_type IN ('receipt','shipment','transfer','write-off','reversal')
@@ -344,17 +348,17 @@ CREATE TABLE core.storage_operations (
 
 COMMENT ON TABLE core.storage_operations IS 'Складські операції (незнищенні, тільки сторно)';
 
-CREATE UNIQUE INDEX uq_one_reversal_per_operation
+CREATE UNIQUE INDEX IF NOT EXISTS uq_one_reversal_per_operation
     ON core.storage_operations (reversal_of_operation_id)
     WHERE reversal_of_operation_id IS NOT NULL;
 
-CREATE INDEX idx_storage_ops_order ON core.storage_operations (order_id);
-CREATE INDEX idx_storage_ops_date ON core.storage_operations (operation_date);
+CREATE INDEX IF NOT EXISTS idx_storage_ops_order ON core.storage_operations (order_id);
+CREATE INDEX IF NOT EXISTS idx_storage_ops_date ON core.storage_operations (operation_date);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: storage_operation_items
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.storage_operation_items (
+CREATE TABLE IF NOT EXISTS core.storage_operation_items (
     operation_id      UUID NOT NULL REFERENCES core.storage_operations (operation_id),
     product_id        UUID NOT NULL REFERENCES core.products (product_id),
     serial            VARCHAR(100) NOT NULL DEFAULT 'N/A',
@@ -370,12 +374,12 @@ CREATE TABLE core.storage_operation_items (
 
 COMMENT ON TABLE core.storage_operation_items IS 'Специфікація складських операцій (незнищенні)';
 
-CREATE INDEX idx_storage_op_items_product ON core.storage_operation_items (product_id);
+CREATE INDEX IF NOT EXISTS idx_storage_op_items_product ON core.storage_operation_items (product_id);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: production_costs
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.production_costs (
+CREATE TABLE IF NOT EXISTS core.production_costs (
     operation_id  UUID NOT NULL REFERENCES core.storage_operations (operation_id),
     cost_source   VARCHAR(100) NOT NULL,
     amortization  DECIMAL(15,2),
@@ -393,7 +397,7 @@ COMMENT ON TABLE core.production_costs IS 'Виробничі витрати';
 -- ----------------------------------------------------------------------------
 -- Таблиця: orders
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.orders (
+CREATE TABLE IF NOT EXISTS core.orders (
     order_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     parent_order_id   UUID REFERENCES core.orders (order_id),
     order_number      VARCHAR(50),
@@ -417,25 +421,28 @@ CREATE TABLE core.orders (
 
 COMMENT ON TABLE core.orders IS 'Замовлення (client_id видалено — використовуємо order_roles)';
 
-CREATE INDEX idx_orders_parent ON core.orders (parent_order_id);
-CREATE INDEX idx_orders_manager ON core.orders (manager_id);
-CREATE INDEX idx_orders_author ON core.orders (author_id);
-CREATE INDEX idx_orders_legal_entity ON core.orders (legal_entity_id);
-CREATE INDEX idx_orders_process ON core.orders (process_id);
-CREATE INDEX idx_orders_status ON core.orders (status_id);
-CREATE INDEX idx_orders_source ON core.orders (order_source_id);
-CREATE INDEX idx_orders_root_product ON core.orders (root_product_id);
-CREATE INDEX idx_orders_date ON core.orders (order_date);
+CREATE INDEX IF NOT EXISTS idx_orders_parent ON core.orders (parent_order_id);
+CREATE INDEX IF NOT EXISTS idx_orders_manager ON core.orders (manager_id);
+CREATE INDEX IF NOT EXISTS idx_orders_author ON core.orders (author_id);
+CREATE INDEX IF NOT EXISTS idx_orders_legal_entity ON core.orders (legal_entity_id);
+CREATE INDEX IF NOT EXISTS idx_orders_process ON core.orders (process_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON core.orders (status_id);
+CREATE INDEX IF NOT EXISTS idx_orders_source ON core.orders (order_source_id);
+CREATE INDEX IF NOT EXISTS idx_orders_root_product ON core.orders (root_product_id);
+CREATE INDEX IF NOT EXISTS idx_orders_date ON core.orders (order_date);
 
--- Додати FK для storage_operations.order_id
-ALTER TABLE core.storage_operations
-    ADD CONSTRAINT fk_storage_operations_order
-    FOREIGN KEY (order_id) REFERENCES core.orders (order_id);
+-- Додати FK для storage_operations.order_id (ADD CONSTRAINT не підтримує IF NOT EXISTS)
+DO $$ BEGIN
+    ALTER TABLE core.storage_operations
+        ADD CONSTRAINT fk_storage_operations_order
+        FOREIGN KEY (order_id) REFERENCES core.orders (order_id);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_roles
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_roles (
+CREATE TABLE IF NOT EXISTS core.order_roles (
     order_id   UUID NOT NULL REFERENCES core.orders (order_id) ON DELETE CASCADE,
     role_type  VARCHAR(30) NOT NULL CHECK (
         role_type IN ('customer','payer','recipient','bill_to','ship_to','supplier')
@@ -448,17 +455,17 @@ CREATE TABLE core.order_roles (
 
 COMMENT ON TABLE core.order_roles IS 'Ролі клієнтів у замовленні (єдине джерело істини). Кілька сторін на одну роль дозволено (напр. кілька ship_to), is_primary позначає головну.';
 
-CREATE INDEX idx_order_roles_party ON core.order_roles (party_id);
+CREATE INDEX IF NOT EXISTS idx_order_roles_party ON core.order_roles (party_id);
 
 -- Не більше однієї "головної" сторони на роль в межах замовлення
-CREATE UNIQUE INDEX uq_order_roles_primary
+CREATE UNIQUE INDEX IF NOT EXISTS uq_order_roles_primary
     ON core.order_roles (order_id, role_type)
     WHERE is_primary = TRUE;
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_financials
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_financials (
+CREATE TABLE IF NOT EXISTS core.order_financials (
     order_id              UUID PRIMARY KEY REFERENCES core.orders (order_id) ON DELETE CASCADE,
     payment_category_id   UUID REFERENCES core.payment_categories (category_id),
     account_id            UUID REFERENCES core.accounts (account_id),
@@ -474,12 +481,12 @@ CREATE TABLE core.order_financials (
 
 COMMENT ON TABLE core.order_financials IS 'Фінансова частина замовлення';
 
-CREATE INDEX idx_order_financials_unpaid ON core.order_financials (order_id) WHERE is_paid = FALSE;
+CREATE INDEX IF NOT EXISTS idx_order_financials_unpaid ON core.order_financials (order_id) WHERE is_paid = FALSE;
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_logistics
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_logistics (
+CREATE TABLE IF NOT EXISTS core.order_logistics (
     order_id              UUID PRIMARY KEY REFERENCES core.orders (order_id) ON DELETE CASCADE,
     procurement_deadline  DATE,
     delivery_date         DATE,
@@ -495,7 +502,7 @@ COMMENT ON TABLE core.order_logistics IS 'Логістична частина з
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_obligations
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_obligations (
+CREATE TABLE IF NOT EXISTS core.order_obligations (
     order_id             UUID PRIMARY KEY REFERENCES core.orders (order_id) ON DELETE CASCADE,
     our_obligations      TEXT,
     client_obligations   TEXT,
@@ -507,7 +514,7 @@ COMMENT ON TABLE core.order_obligations IS 'Зобов''язання сторі�
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_items
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_items (
+CREATE TABLE IF NOT EXISTS core.order_items (
     item_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id        UUID NOT NULL REFERENCES core.orders (order_id) ON DELETE CASCADE,
     product_id      UUID NOT NULL REFERENCES core.products (product_id),
@@ -523,13 +530,13 @@ CREATE TABLE core.order_items (
 
 COMMENT ON TABLE core.order_items IS 'Позиції замовлення';
 
-CREATE INDEX idx_order_items_order ON core.order_items (order_id);
-CREATE INDEX idx_order_items_product ON core.order_items (product_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON core.order_items (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_product ON core.order_items (product_id);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_status_history (partitioned)
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_status_history (
+CREATE TABLE IF NOT EXISTS core.order_status_history (
     history_id          UUID DEFAULT gen_random_uuid(),
     order_id            UUID NOT NULL REFERENCES core.orders (order_id),
     status_change_date  TIMESTAMPTZ NOT NULL,
@@ -542,24 +549,24 @@ CREATE TABLE core.order_status_history (
 COMMENT ON TABLE core.order_status_history IS 'Історія зміни статусів замовлень (партиціонована)';
 
 -- Партиції
-CREATE TABLE core.order_status_history_2024 PARTITION OF core.order_status_history
+CREATE TABLE IF NOT EXISTS core.order_status_history_2024 PARTITION OF core.order_status_history
     FOR VALUES FROM ('2024-01-01') TO ('2025-01-01');
-CREATE TABLE core.order_status_history_2025 PARTITION OF core.order_status_history
+CREATE TABLE IF NOT EXISTS core.order_status_history_2025 PARTITION OF core.order_status_history
     FOR VALUES FROM ('2025-01-01') TO ('2026-01-01');
-CREATE TABLE core.order_status_history_2026 PARTITION OF core.order_status_history
+CREATE TABLE IF NOT EXISTS core.order_status_history_2026 PARTITION OF core.order_status_history
     FOR VALUES FROM ('2026-01-01') TO ('2027-01-01');
-CREATE TABLE core.order_status_history_2027 PARTITION OF core.order_status_history
+CREATE TABLE IF NOT EXISTS core.order_status_history_2027 PARTITION OF core.order_status_history
     FOR VALUES FROM ('2027-01-01') TO ('2028-01-01');
 -- Запобіжник: без цього вставка дати поза 2024-2027 впаде з "no partition of relation found"
-CREATE TABLE core.order_status_history_default PARTITION OF core.order_status_history DEFAULT;
+CREATE TABLE IF NOT EXISTS core.order_status_history_default PARTITION OF core.order_status_history DEFAULT;
 
-CREATE INDEX idx_order_status_history_order ON core.order_status_history (order_id);
-CREATE INDEX idx_order_status_history_date ON core.order_status_history (status_change_date);
+CREATE INDEX IF NOT EXISTS idx_order_status_history_order ON core.order_status_history (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_status_history_date ON core.order_status_history (status_change_date);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: order_stage_transitions
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.order_stage_transitions (
+CREATE TABLE IF NOT EXISTS core.order_stage_transitions (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id          UUID NOT NULL REFERENCES core.orders (order_id),
     stage_type        VARCHAR(50) NOT NULL CHECK (stage_type IN ('procurement','production','delivery','payment')),
@@ -572,9 +579,9 @@ CREATE TABLE core.order_stage_transitions (
 
 COMMENT ON TABLE core.order_stage_transitions IS 'Стани workflow замовлень';
 
-CREATE INDEX idx_stage_order ON core.order_stage_transitions (order_id);
-CREATE INDEX idx_stage_type_status ON core.order_stage_transitions (stage_type, stage_status);
-CREATE INDEX idx_stage_date ON core.order_stage_transitions (transitioned_at);
+CREATE INDEX IF NOT EXISTS idx_stage_order ON core.order_stage_transitions (order_id);
+CREATE INDEX IF NOT EXISTS idx_stage_type_status ON core.order_stage_transitions (stage_type, stage_status);
+CREATE INDEX IF NOT EXISTS idx_stage_date ON core.order_stage_transitions (transitioned_at);
 
 -- ============================================================================
 -- ЧАСТИНА 8: PAYMENTS ТАБЛИЦІ
@@ -583,7 +590,7 @@ CREATE INDEX idx_stage_date ON core.order_stage_transitions (transitioned_at);
 -- ----------------------------------------------------------------------------
 -- Таблиця: payments
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.payments (
+CREATE TABLE IF NOT EXISTS core.payments (
     payment_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payment_date    DATE NOT NULL,
     payment_sum     DECIMAL(15,2) NOT NULL CHECK (payment_sum > 0),
@@ -601,14 +608,14 @@ CREATE TABLE core.payments (
 
 COMMENT ON TABLE core.payments IS 'Платежі (order_id відсутній — використовуємо payment_allocations)';
 
-CREATE INDEX idx_payments_date ON core.payments (payment_date);
-CREATE INDEX idx_payments_client ON core.payments (client_id);
-CREATE INDEX idx_payments_code ON core.payments (payment_code);
+CREATE INDEX IF NOT EXISTS idx_payments_date ON core.payments (payment_date);
+CREATE INDEX IF NOT EXISTS idx_payments_client ON core.payments (client_id);
+CREATE INDEX IF NOT EXISTS idx_payments_code ON core.payments (payment_code);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: payment_allocations
 -- ----------------------------------------------------------------------------
-CREATE TABLE core.payment_allocations (
+CREATE TABLE IF NOT EXISTS core.payment_allocations (
     allocation_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     payment_id                 UUID NOT NULL REFERENCES core.payments (payment_id) ON DELETE CASCADE,
     order_id                   UUID NOT NULL REFERENCES core.orders (order_id) ON DELETE CASCADE,
@@ -624,8 +631,8 @@ COMMENT ON TABLE core.payment_allocations IS 'Розподіл платежів 
 COMMENT ON COLUMN core.payment_allocations.allocated_amount IS 'Сума розподілу у валюті ЗАМОВЛЕННЯ';
 COMMENT ON COLUMN core.payment_allocations.applied_rate IS 'Курс конвертації payment_currency → order_currency';
 
-CREATE INDEX idx_payment_allocations_order ON core.payment_allocations (order_id);
-CREATE INDEX idx_payment_allocations_payment ON core.payment_allocations (payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_allocations_order ON core.payment_allocations (order_id);
+CREATE INDEX IF NOT EXISTS idx_payment_allocations_payment ON core.payment_allocations (payment_id);
 
 -- ============================================================================
 -- ЧАСТИНА 9: STAGING ТАБЛИЦІ
@@ -634,7 +641,7 @@ CREATE INDEX idx_payment_allocations_payment ON core.payment_allocations (paymen
 -- ----------------------------------------------------------------------------
 -- Таблиця: staging.orders_raw
 -- ----------------------------------------------------------------------------
-CREATE TABLE staging.orders_raw (
+CREATE TABLE IF NOT EXISTS staging.orders_raw (
     raw_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id     TEXT,
     external_id  TEXT NOT NULL,
@@ -653,12 +660,12 @@ CREATE TABLE staging.orders_raw (
 
 COMMENT ON TABLE staging.orders_raw IS 'Сирі вхідні замовлення';
 
-CREATE INDEX idx_staging_orders_status ON staging.orders_raw (etl_status);
+CREATE INDEX IF NOT EXISTS idx_staging_orders_status ON staging.orders_raw (etl_status);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: staging.order_items_raw
 -- ----------------------------------------------------------------------------
-CREATE TABLE staging.order_items_raw (
+CREATE TABLE IF NOT EXISTS staging.order_items_raw (
     raw_item_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_external_id TEXT NOT NULL,
     source_code     TEXT NOT NULL,
@@ -676,13 +683,13 @@ CREATE TABLE staging.order_items_raw (
 
 COMMENT ON TABLE staging.order_items_raw IS 'Сирі вхідні позиції замовлень';
 
-CREATE INDEX idx_staging_items_status ON staging.order_items_raw (etl_status);
-CREATE INDEX idx_staging_items_order ON staging.order_items_raw (order_external_id, source_code);
+CREATE INDEX IF NOT EXISTS idx_staging_items_status ON staging.order_items_raw (etl_status);
+CREATE INDEX IF NOT EXISTS idx_staging_items_order ON staging.order_items_raw (order_external_id, source_code);
 
 -- ----------------------------------------------------------------------------
 -- Таблиця: staging.products_raw (для синхронізації довідників)
 -- ----------------------------------------------------------------------------
-CREATE TABLE staging.products_raw (
+CREATE TABLE IF NOT EXISTS staging.products_raw (
     raw_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     erp_id       TEXT NOT NULL,
     product_name TEXT,
@@ -700,8 +707,8 @@ CREATE TABLE staging.products_raw (
 
 COMMENT ON TABLE staging.products_raw IS 'Сирі дані товарів з ERP';
 
-CREATE INDEX idx_staging_products_erp ON staging.products_raw (erp_id);
-CREATE INDEX idx_staging_products_status ON staging.products_raw (etl_status);
+CREATE INDEX IF NOT EXISTS idx_staging_products_erp ON staging.products_raw (erp_id);
+CREATE INDEX IF NOT EXISTS idx_staging_products_status ON staging.products_raw (etl_status);
 
 -- ============================================================================
 -- ЧАСТИНА 10: VIEWS
@@ -710,7 +717,7 @@ CREATE INDEX idx_staging_products_status ON staging.products_raw (etl_status);
 -- ----------------------------------------------------------------------------
 -- View: v_storage_operations
 -- ----------------------------------------------------------------------------
-CREATE VIEW core.v_storage_operations AS
+CREATE OR REPLACE VIEW core.v_storage_operations AS
 SELECT so.*,
        COALESCE(i.amount, 0)          AS amount,
        COALESCE(i.cost, 0)            AS cost
@@ -1187,45 +1194,60 @@ COMMENT ON FUNCTION etl.process_order_items IS 'ETL: імпорт позицій
 -- ============================================================================
 
 -- Тригери для storage_operation_items
+DROP TRIGGER IF EXISTS trg_apply_item_to_balance ON core.storage_operation_items;
 CREATE TRIGGER trg_apply_item_to_balance
     AFTER INSERT ON core.storage_operation_items
     FOR EACH ROW EXECUTE FUNCTION core.fn_apply_item_to_balance();
 
+DROP TRIGGER IF EXISTS trg_prevent_item_modification ON core.storage_operation_items;
 CREATE TRIGGER trg_prevent_item_modification
     BEFORE UPDATE OR DELETE ON core.storage_operation_items
     FOR EACH ROW EXECUTE FUNCTION core.fn_prevent_item_modification();
 
 -- Тригери для storage_operations
+DROP TRIGGER IF EXISTS trg_prevent_operation_modification ON core.storage_operations;
 CREATE TRIGGER trg_prevent_operation_modification
     BEFORE UPDATE OR DELETE ON core.storage_operations
     FOR EACH ROW EXECUTE FUNCTION core.fn_prevent_operation_modification();
 
+DROP TRIGGER IF EXISTS trg_validate_reversal ON core.storage_operations;
 CREATE TRIGGER trg_validate_reversal
     BEFORE INSERT ON core.storage_operations
     FOR EACH ROW EXECUTE FUNCTION core.fn_validate_reversal();
 
 -- Тригери для payment_allocations
+DROP TRIGGER IF EXISTS trg_validate_allocation_currency ON core.payment_allocations;
 CREATE TRIGGER trg_validate_allocation_currency
     BEFORE INSERT OR UPDATE ON core.payment_allocations
     FOR EACH ROW EXECUTE FUNCTION core.fn_validate_allocation_currency();
 
+DROP TRIGGER IF EXISTS trg_recalc_paid_sum ON core.payment_allocations;
 CREATE TRIGGER trg_recalc_paid_sum
     AFTER INSERT OR UPDATE OR DELETE ON core.payment_allocations
     FOR EACH ROW EXECUTE FUNCTION core.fn_recalc_paid_sum();
 
 -- Тригер для product_categories
+DROP TRIGGER IF EXISTS trg_update_category_path ON core.product_categories;
 CREATE TRIGGER trg_update_category_path
     BEFORE INSERT OR UPDATE OF parent_id ON core.product_categories
     FOR EACH ROW EXECUTE FUNCTION core.fn_update_category_path();
 
 -- Тригери для updated_at (moddatetime)
+DROP TRIGGER IF EXISTS trg_clients_moddatetime ON core.clients;
 CREATE TRIGGER trg_clients_moddatetime           BEFORE UPDATE ON core.clients            FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_orders_moddatetime ON core.orders;
 CREATE TRIGGER trg_orders_moddatetime            BEFORE UPDATE ON core.orders             FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_order_financials_moddatetime ON core.order_financials;
 CREATE TRIGGER trg_order_financials_moddatetime  BEFORE UPDATE ON core.order_financials   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_order_logistics_moddatetime ON core.order_logistics;
 CREATE TRIGGER trg_order_logistics_moddatetime   BEFORE UPDATE ON core.order_logistics    FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_order_obligations_moddatetime ON core.order_obligations;
 CREATE TRIGGER trg_order_obligations_moddatetime BEFORE UPDATE ON core.order_obligations  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_storage_balances_moddatetime ON core.storage_balances;
 CREATE TRIGGER trg_storage_balances_moddatetime  BEFORE UPDATE ON core.storage_balances   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_products_moddatetime ON core.products;
 CREATE TRIGGER trg_products_moddatetime          BEFORE UPDATE ON core.products           FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+DROP TRIGGER IF EXISTS trg_storages_moddatetime ON core.storages;
 CREATE TRIGGER trg_storages_moddatetime          BEFORE UPDATE ON core.storages           FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 
 -- ============================================================================
@@ -1235,7 +1257,7 @@ CREATE TRIGGER trg_storages_moddatetime          BEFORE UPDATE ON core.storages 
 -- ----------------------------------------------------------------------------
 -- Materialized View: mv_inventory_report
 -- ----------------------------------------------------------------------------
-CREATE MATERIALIZED VIEW core.mv_inventory_report AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS core.mv_inventory_report AS
 SELECT
     s.storage_name,
     s.erp_id AS storage_erp_id,
@@ -1255,7 +1277,7 @@ GROUP BY s.storage_name, s.erp_id, p.product_name, p.erp_id, p.sku, sb.currency_
 
 COMMENT ON MATERIALIZED VIEW core.mv_inventory_report IS 'Звіт по залишках з конвертацією в UAH';
 
-CREATE UNIQUE INDEX uq_mv_inventory
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mv_inventory
     ON core.mv_inventory_report (storage_erp_id, product_erp_id, currency_code);
 
-CREATE INDEX idx_mv_inventory_sku ON core.mv_inventory_report (sku);
+CREATE INDEX IF NOT EXISTS idx_mv_inventory_sku ON core.mv_inventory_report (sku);
