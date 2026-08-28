@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS payments_raw (
+    payment_id VARCHAR(50) PRIMARY KEY,
+    payment_date TIMESTAMP,
+    payment_sum NUMERIC,
+    payment_key VARCHAR(255),
+    payment_comment TEXT,
+    payment_category_id VARCHAR(50),
+    payment_category_name VARCHAR(255),
+    payment_currency VARCHAR(50),
+    payment_exchange_rate NUMERIC,
+    payment_client_id VARCHAR(50),
+    payment_client_name VARCHAR(255),
+    payment_author_id VARCHAR(50),
+    payment_author_name VARCHAR(255),
+    payment_order_id VARCHAR(50),
+    payment_order_name VARCHAR(255),
+    payment_account_id VARCHAR(50),
+    payment_account_name VARCHAR(255),
+    payment_account_currency VARCHAR(50)
+);

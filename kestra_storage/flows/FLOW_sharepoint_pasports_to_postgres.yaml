@@ -1,0 +1,188 @@
+id: sharepoint_pasports_to_postgres
+namespace: company.data
+
+variables:
+  db_host: "postgres"
+  db_port: "5432"
+  db_name: "kestra"
+  db_user: "kestra"
+  db_pass: "kestra"
+  
+  tenant_id: "5ec75990-16b0-40a4-a80f-74a75d3329b1"
+  client_id: "7dd77777-084a-4585-a1fd-5f37696b4f9f"
+  client_secret: "{{ secret('MS_GRAPH_CLIENT_SECRET') }}"
+  site_id: "vyriyllc.sharepoint.com,1cea33e3-a302-4a52-a75a-ff85fde14516,af520fba-93b7-4556-954d-decd4a92a686"
+  
+  # Шлях до файлу паспортів
+  item_path: "/LatestXML/Pasport latest/pasport_latest.xml"
+
+tasks:
+  # ========================================================
+  # ТАСКА 1: Завантаження XML з SharePoint
+  # ========================================================
+  - id: downloadSharePointFile
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Download Pasports XML file from SharePoint via Graph API"
+    
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+    containerImage: python:3.11-slim
+    
+    beforeCommands:
+      - pip install requests msal
+      
+    outputFiles:
+      - downloaded_pasports.xml
+      
+    script: |
+      import os
+      import requests
+      from msal import ConfidentialClientApplication
+
+      TENANT_ID = "{{ vars.tenant_id }}"
+      CLIENT_ID = "{{ vars.client_id }}"
+      CLIENT_SECRET = "{{ vars.client_secret }}"
+      SITE_ID = "{{ vars.site_id }}"
+      ITEM_PATH = "{{ vars.item_path }}"
+
+      app = ConfidentialClientApplication(
+          CLIENT_ID,
+          authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+          client_credential=CLIENT_SECRET
+      )
+
+      result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+
+      if "access_token" in result:
+          headers = {"Authorization": f"Bearer {result['access_token']}"}
+          file_metadata_url = f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:{ITEM_PATH}"
+          
+          print(f"Запит метаданих файлу до: {file_metadata_url}")
+          response = requests.get(file_metadata_url, headers=headers)
+          
+          if response.status_code == 200:
+              file_data = response.json()
+              download_url = file_data.get("@microsoft.graph.downloadUrl")
+              
+              if download_url:
+                  print(f"Завантаження вмісту файлу з: {download_url}")
+                  xml_response = requests.get(download_url)
+                  
+                  if xml_response.status_code == 200:
+                      with open("downloaded_pasports.xml", "wb") as f:
+                          f.write(xml_response.content)
+                      print("XML успішно завантажено та збережено.")
+                  else:
+                      raise Exception(f"Помилка завантаження вмісту файлу: {xml_response.status_code}")
+              else:
+                  raise Exception("URL для завантаження не знайдено в метаданих.")
+          else:
+              raise Exception(f"Помилка отримання метаданих: {response.status_code} - {response.text}")
+      else:
+          raise Exception(f"Помилка токена: {result.get('error_description')}")
+
+  # ========================================================
+  # ТАСКА 2: Парсинг XML та запис у PostgreSQL
+  # ========================================================
+  - id: insertToPostgres
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Parse Pasports XML and bulk insert into PostgreSQL"
+    
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: kestrayaml_default
+      
+    containerImage: python:3.11-slim
+    
+    beforeCommands:
+      - pip install xmltodict psycopg2-binary kestra
+      
+    inputFiles:
+      input.xml: "{{ outputs.downloadSharePointFile.outputFiles['downloaded_pasports.xml'] }}"
+      
+    script: |
+      import xmltodict
+      import psycopg2
+      from psycopg2 import extras
+      import json
+
+      DB_HOST = "{{ vars.db_host }}"
+      DB_PORT = "{{ vars.db_port }}"
+      DB_NAME = "{{ vars.db_name }}"
+      DB_USER = "{{ vars.db_user }}"
+      DB_PASS = "{{ vars.db_pass }}"
+
+      print("Починаємо обробку XML...")
+      with open('input.xml', 'r', encoding='utf-8') as xml_file:
+          xml_content = xml_file.read()
+
+      data_dict = xmltodict.parse(xml_content)
+
+      try:
+          shop_node = data_dict.get('shop', {})
+          orders_node = shop_node.get('orders', {})
+          orders = orders_node.get('order', [])
+          
+          if isinstance(orders, dict):
+              orders = [orders]
+      except Exception as e:
+          print(f"Помилка структури XML: {e}")
+          orders = []
+
+      if not orders:
+          print("Не знайдено жодного запису для імпорту. Завершення.")
+          exit(0)
+
+      print(f"Знайдено {len(orders)} записів паспортів. Готуємо дані для БД...")
+
+      keys_to_extract = [
+          'order_id', 'order_name', 'order_cdate', 'father_product_id'
+      ]
+
+      values_to_insert = []
+      for order in orders:
+          row = []
+          for key in keys_to_extract:
+              val = order.get(key)
+              
+              if val in [None, {}, "", "0000-00-00 00:00:00", "0000-00-00"]:
+                  row.append(None)
+              else:
+                  row.append(val)
+          
+          products_data = order.get('products')
+          if products_data and products_data != {}:
+              row.append(json.dumps(products_data))
+          else:
+              row.append(None)
+
+          values_to_insert.append(tuple(row))
+
+      insert_query = """
+          INSERT INTO pasports_raw (
+              order_id, order_name, order_cdate, father_product_id, products
+          ) VALUES %s
+      """
+
+      print("Підключення до PostgreSQL...")
+      try:
+          conn = psycopg2.connect(
+              host=DB_HOST,
+              port=DB_PORT,
+              dbname=DB_NAME,
+              user=DB_USER,
+              password=DB_PASS,
+              connect_timeout=10
+          )
+          cursor = conn.cursor()
+          
+          extras.execute_values(cursor, insert_query, values_to_insert)
+          
+          conn.commit()
+          print(f"Успішно збережено {len(values_to_insert)} записів до таблиці pasports_raw!")
+          
+          cursor.close()
+          conn.close()
+      except Exception as e:
+          print(f"Критична помилка при роботі з PostgreSQL: {e}")
+          raise

@@ -1,0 +1,31 @@
+CREATE TABLE IF NOT EXISTS storage_operations_raw (
+    id VARCHAR(50) PRIMARY KEY,
+    cdate TIMESTAMP,
+    date TIMESTAMP,
+    dateto TIMESTAMP,
+    userid VARCHAR(50),
+    amount NUMERIC,
+    cost NUMERIC,
+    type VARCHAR(100),
+    storagenamefromid VARCHAR(50),
+    storagenametoid VARCHAR(50),
+    storagefromname VARCHAR(255),
+    storagetoname VARCHAR(255),
+    storagefromcode1c VARCHAR(100),
+    storagetocode1c VARCHAR(100),
+    "return" VARCHAR(50), 
+    returntransactionid VARCHAR(50),
+    code1c VARCHAR(100),
+    numberdocument VARCHAR(255),
+    typetransaction VARCHAR(100),
+    document VARCHAR(255),
+    comments TEXT,
+    request VARCHAR(255),
+    orderid VARCHAR(50),
+    client VARCHAR(255),
+    notice TEXT,
+    
+    -- Вкладені дані зберігаємо як JSONB для зручності
+    products JSONB,
+    productioncosts JSONB
+);

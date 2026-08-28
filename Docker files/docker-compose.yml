@@ -1,0 +1,83 @@
+# version: '3'
+
+# services:
+#   postgres:
+#     image: postgres:15
+#     ports:
+#       - "5432:5432"
+#     environment:
+#       POSTGRES_DB: kestra
+#       POSTGRES_USER: kestra
+#       POSTGRES_PASSWORD: kestra
+#     volumes:
+#       - ./postgres_data:/var/lib/postgresql/data
+
+#   kestra:
+#     image: kestra/kestra:latest
+#     command: server local
+#     ports:
+#       - "8080:8080"
+#     environment:
+#       KESTRA_CONFIGURATION: |
+#         kestra:
+#           repository:
+#             type: postgres
+#           storage:
+#             type: local
+#             local:
+#               base-path: /app/storage
+#           jdbc:
+#             postgres:
+#               url: jdbc:postgresql://postgres:5432/kestra
+#               username: kestra
+#               password: kestra
+#     volumes:
+#       - ./kestra_storage:/app/storage
+#       - /run/user/1000/podman.sock:/var/run/docker.sock:Z
+#     depends_on:
+#       - postgres
+
+
+version: '3'
+
+volumes:
+  postgres-data: # Створюємо надійний внутрішній том для бази
+
+services:
+  postgres:
+    image: postgres:15
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: kestra
+      POSTGRES_USER: kestra
+      POSTGRES_PASSWORD: kestra
+    volumes:
+      - postgres-data:/var/lib/postgresql/data # Віддаємо базі її рідний том
+
+  kestra:
+    image: kestra/kestra:latest
+    command: server local
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.containers.internal:host-gateway" # Фікс для Python-скриптів
+    environment:
+      KESTRA_CONFIGURATION: |
+        kestra:
+          repository:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+          jdbc:
+            postgres:
+              url: jdbc:postgresql://postgres:5432/kestra
+              username: kestra
+              password: kestra
+    volumes:
+      - ./kestra_storage:/app/storage # Сховище Kestra залишається на Windows
+      - /run/user/1000/podman.sock:/var/run/docker.sock:Z
+    depends_on:
+      - postgres

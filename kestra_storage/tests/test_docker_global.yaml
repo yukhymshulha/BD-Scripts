@@ -1,0 +1,15 @@
+id: test_docker_global
+namespace: company.team
+
+tasks:
+  - id: check_python
+    type: io.kestra.plugin.scripts.python.Script
+    containerImage: python:3.11-slim
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+    script: |
+      import sys
+      print("========================================")
+      print("SUCCESS: Global Docker runner is working!")
+      print(f"Python Version: {sys.version}")
+      print("========================================")

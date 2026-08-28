@@ -1,0 +1,126 @@
+id: sharepoint_python_duckdb_pipeline
+namespace: company.team
+
+variables:
+  tenant_id: "5ec75990-16b0-40a4-a80f-74a75d3329b1"
+  client_id: "7dd77777-084a-4585-a1fd-5f37696b4f9f"
+  client_secret: "{{ secret('MS_GRAPH_CLIENT_SECRET') }}"
+  site_id: "vyriyllc.sharepoint.com,1cea33e3-a302-4a52-a75a-ff85fde14516,af520fba-93b7-4556-954d-decd4a92a686"
+  item_path: "/LatestXML/Clients_latest/clients_latest.xml"
+
+tasks:
+  # ========================================================
+  # ТАСКА 1: Завантаження XML з SharePoint
+  # ========================================================
+  - id: downloadSharePointFile
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Download XML file from SharePoint via Graph API"
+
+    # Використовуємо Docker runner (працюватиме через Podman)
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+    containerImage: python:3.11-slim
+
+    beforeCommands:
+      - pip install requests msal
+
+    # Реєструємо файл як вихідний, щоб передати наступній тасці
+    outputFiles:
+      - downloaded.xml
+
+    script: |
+      import os
+      import requests
+      from msal import ConfidentialClientApplication
+
+      TENANT_ID = "{{ vars.tenant_id }}"
+      CLIENT_ID = "{{ vars.client_id }}"
+      CLIENT_SECRET = "{{ vars.client_secret }}"
+      SITE_ID = "{{ vars.site_id }}"
+      ITEM_PATH = "{{ vars.item_path }}"
+
+      # Авторизація MSAL
+      app = ConfidentialClientApplication(
+          CLIENT_ID,
+          authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+          client_credential=CLIENT_SECRET
+      )
+
+      result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+
+      if "access_token" in result:
+          headers = {"Authorization": f"Bearer {result['access_token']}"}
+          # First request to get file metadata and download URL
+          file_metadata_url = f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:{ITEM_PATH}"
+          
+          print(f"Запит метаданих файлу до: {file_metadata_url}")
+          response = requests.get(file_metadata_url, headers=headers)
+          
+          if response.status_code == 200:
+              file_data = response.json()
+              download_url = file_data.get("@microsoft.graph.downloadUrl")
+              
+              if download_url:
+                  # Second request to download the file content
+                  print(f"Завантаження вмісту файлу з: {download_url}")
+                  xml_response = requests.get(download_url)
+                  
+                  if xml_response.status_code == 200:
+                      # Зберігаємо файл у режимі запису байтів (wb) 
+                      # і беремо сирі байти (.content), щоб не зламати кирилицю
+                      with open("downloaded.xml", "wb") as f:
+                          f.write(xml_response.content)
+                      print("XML успішно завантажено та збережено.")
+                  else:
+                      raise Exception(f"Помилка завантаження вмісту файлу з {download_url}: {xml_response.status_code} - {xml_response.text}")
+              else:
+                  raise Exception(f"URL для завантаження не знайдено в метаданих файлу. Перевірте ITEM_PATH та дозволи.")
+          else:
+              raise Exception(f"Помилка отримання метаданих файлу: {response.status_code} - {response.text}")
+      else:
+          raise Exception(f"Помилка токена: {result.get('error_description')}")
+
+  # ========================================================
+  # ТАСКА 2: Трансформація XML в JSON
+  # ========================================================
+  - id: transformXml
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Transform the downloaded XML file to JSON using Python"
+
+    # Ваш блок для використання Podman
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+    containerImage: python:3.11-slim
+
+    beforeCommands:
+      - pip install xmltodict kestra
+
+    # Kestra бере вихідний файл з першої таски і кладе його сюди як 'input.xml'
+    inputFiles:
+      input.xml: "{{ outputs.downloadSharePointFile.outputFiles['downloaded.xml'] }}"
+
+    outputFiles:
+      - output.json
+
+    script: |
+      import xmltodict
+      import json
+      from kestra import Kestra
+
+      # Читаємо XML
+      with open('input.xml', 'r', encoding='utf-8') as xml_file:
+          xml_content = xml_file.read()
+
+      # Конвертуємо
+      data_dict = xmltodict.parse(xml_content)
+      json_content = json.dumps(data_dict, indent=4, ensure_ascii=False)
+
+      # Пишемо JSON
+      with open('output.json', 'w', encoding='utf-8') as json_file:
+          json_file.write(json_content)
+
+      # Передаємо вихідний файл у внутрішню систему Kestra (необов'язково, але корисно)
+      # Kestra.outputs({'json_file': 'output.json'})
+      
+      # Kestra автоматично перехоплює всі print() і записує їх у свої логи
+      print("Трансформацію успішно завершено! Файл збережено як output.json")

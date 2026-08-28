@@ -1,0 +1,30 @@
+id: debug_sharepoint_access
+namespace: company.team
+
+variables:
+  tenant_id: "5ec75990-16b0-40a4-a80f-74a75d3329b1"
+  client_id: "7dd77777-084a-4585-a1fd-5f37696b4f9f"
+  client_secret: "{{ secret('MS_GRAPH_CLIENT_SECRET') }}"
+  site_id: "vyriyllc.sharepoint.com,84f2d27c-e521-462b-89a8-5f3202496e4f,81d9cab5-9e66-41a2-890b-e48d955d06a8"
+
+tasks:
+  - id: get_token
+    type: io.kestra.plugin.core.http.Request
+    uri: "https://login.microsoftonline.com/{{ vars.tenant_id }}/oauth2/v2.0/token"
+    method: POST
+    contentType: "application/x-www-form-urlencoded"
+    body: "grant_type=client_credentials&client_id={{ vars.client_id }}&client_secret={{ vars.client_secret }}&scope=https%3A%2F%2Fgraph.microsoft.com%2F.default"
+
+  # Пробуємо просто прочитати кореневі папки цього сайту
+  - id: check_root_site
+    type: io.kestra.plugin.core.http.Request
+    uri: "https://graph.microsoft.com/v1.0/sites/root"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ json(outputs.get_token.body).access_token }}"
+  - id: find_my_site
+    type: io.kestra.plugin.core.http.Request
+    uri: "https://graph.microsoft.com/v1.0/sites?search=Procurment_OneBox"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ json(outputs.get_token.body).access_token }}"

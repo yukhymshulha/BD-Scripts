@@ -1,0 +1,202 @@
+id: sharepoint_xml_to_postgres
+namespace: company.data
+
+# Обов'язковий блок зі змінними, щоб спрацювали {{ vars... }}
+variables:
+  db_host: "postgres"
+  db_port: "5432"
+  db_name: "kestra"
+  db_user: "kestra"
+  db_pass: "kestra"
+
+  tenant_id: "5ec75990-16b0-40a4-a80f-74a75d3329b1"
+  client_id: "7dd77777-084a-4585-a1fd-5f37696b4f9f"
+  client_secret: "{{ secret('MS_GRAPH_CLIENT_SECRET') }}"
+  site_id: "vyriyllc.sharepoint.com,1cea33e3-a302-4a52-a75a-ff85fde14516,af520fba-93b7-4556-954d-decd4a92a686"
+  item_path: "/LatestXML/Storage_balance latest/storage_balance_latest.xml"
+
+tasks:
+  # ========================================================
+  # ТАСКА 1: Завантаження XML з SharePoint
+  # ========================================================
+  - id: downloadSharePointFile
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Download XML file from SharePoint via Graph API"
+
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+    containerImage: python:3.11-slim
+
+    beforeCommands:
+      - pip install requests msal
+
+    outputFiles:
+      - downloaded.xml
+
+    script: |
+      import os
+      import requests
+      from msal import ConfidentialClientApplication
+
+      TENANT_ID = "{{ vars.tenant_id }}"
+      CLIENT_ID = "{{ vars.client_id }}"
+      CLIENT_SECRET = "{{ vars.client_secret }}"
+      SITE_ID = "{{ vars.site_id }}"
+      ITEM_PATH = "{{ vars.item_path }}"
+
+      # Авторизація MSAL
+      app = ConfidentialClientApplication(
+          CLIENT_ID,
+          authority=f"https://login.microsoftonline.com/{TENANT_ID}",
+          client_credential=CLIENT_SECRET
+      )
+
+      result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+
+      if "access_token" in result:
+          headers = {"Authorization": f"Bearer {result['access_token']}"}
+          file_metadata_url = f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:{ITEM_PATH}"
+          
+          print(f"Запит метаданих файлу до: {file_metadata_url}")
+          response = requests.get(file_metadata_url, headers=headers)
+          
+          if response.status_code == 200:
+              file_data = response.json()
+              download_url = file_data.get("@microsoft.graph.downloadUrl")
+              
+              if download_url:
+                  print(f"Завантаження вмісту файлу з: {download_url}")
+                  xml_response = requests.get(download_url)
+                  
+                  if xml_response.status_code == 200:
+                      with open("downloaded.xml", "wb") as f:
+                          f.write(xml_response.content)
+                      print("XML успішно завантажено та збережено.")
+                  else:
+                      raise Exception(f"Помилка завантаження вмісту файлу: {xml_response.status_code}")
+              else:
+                  raise Exception("URL для завантаження не знайдено в метаданих.")
+          else:
+              raise Exception(f"Помилка отримання метаданих: {response.status_code} - {response.text}")
+      else:
+          raise Exception(f"Помилка токена: {result.get('error_description')}")
+
+  # ========================================================
+  # ТАСКА 2: Парсинг XML та запис у PostgreSQL
+  # ========================================================
+  - id: insertToPostgres
+    type: io.kestra.plugin.scripts.python.Script
+    description: "Parse downloaded XML and bulk insert into PostgreSQL"
+
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      networkMode: kestrayaml_default
+
+    containerImage: python:3.11-slim
+
+    beforeCommands:
+      - pip install xmltodict psycopg2-binary kestra
+
+    inputFiles:
+      input.xml: "{{ outputs.downloadSharePointFile.outputFiles['downloaded.xml'] }}"
+
+    script: |
+      import xmltodict
+      import psycopg2
+      from psycopg2 import extras
+      from kestra import Kestra
+
+      # Дані для підключення з Kestra variables
+      DB_HOST = "{{ vars.db_host }}"
+      DB_PORT = "{{ vars.db_port }}"
+      DB_NAME = "{{ vars.db_name }}"
+      DB_USER = "{{ vars.db_user }}"
+      DB_PASS = "{{ vars.db_pass }}"
+
+      print("Починаємо обробку XML...")
+      with open('input.xml', 'r', encoding='utf-8') as xml_file:
+          xml_content = xml_file.read()
+
+      data_dict = xmltodict.parse(xml_content)
+
+      # Дістаємо список товарів згідно зі структурою
+      try:
+          products = data_dict['shop']['shop']['products']['product']
+          # Якщо товар лише один, xmltodict повертає словник, а не список. Перетворюємо:
+          if isinstance(products, dict):
+              products = [products]
+      except KeyError:
+          print("Помилка структури XML: шлях shop->shop->products->product не знайдено.")
+          products = []
+
+      if not products:
+          print("Не знайдено жодного товару для імпорту. Завершення.")
+          exit(0)
+
+      print(f"Знайдено {len(products)} товарів. Готуємо дані для БД...")
+
+      # Підготовка даних у вигляді списку кортежів для масового інсерту
+      # Список колонок у тому ж порядку, що і в INSERT-запиті
+      keys_to_extract = [
+          'storage_id', 'storage_name', 'storage_external_id', 'product_id', 
+          'product_name', 'product_lot_id', 'product_serial', 'product_stock_in_date', 
+          'product_price_base_uah', 'product_count', 'product_reserved', 
+          'product_price_base', 'product_currency'
+      ]
+
+      print(f"Знайдено {len(products)} товарів. Готуємо дані для БД...")
+
+      values_to_insert = []
+      for p in products:
+          row = []
+          for key in keys_to_extract:
+              val = p.get(key)
+              
+              # Динамічна заміна NULL (None) на правильні типи даних
+              if val is None or val == {}:
+                  if 'date' in key:
+                      # Дати безпечніше залишати NULL, щоб БД не видала помилку формату
+                      clean_val = None 
+                  elif any(num_marker in key for num_marker in ['id', 'count', 'price', 'reserved']):
+                      # Якщо це айдішник, кількість або ціна - ставимо 0
+                      clean_val = 0 
+                  else:
+                      # Для всіх інших текстових полів (включаючи name, serial, currency) ставимо порожній рядок
+                      clean_val = "" 
+                  row.append(clean_val)
+              else:
+                  # Якщо значення є, просто додаємо його
+                  row.append(val)
+                  
+          values_to_insert.append(tuple(row))
+
+      insert_query = """
+          INSERT INTO storage_balance_raw (
+              storage_id, storage_name, storage_external_id, product_id, product_name,
+              product_lot_id, product_serial, product_stock_in_date, product_price_base_uah,
+              product_count, product_reserved, product_price_base, product_currency
+          ) VALUES %s
+      """
+
+      print("Підключення до PostgreSQL...")
+      try:
+          conn = psycopg2.connect(
+              host=DB_HOST,
+              port=DB_PORT,
+              dbname=DB_NAME,
+              user=DB_USER,
+              password=DB_PASS
+          )
+          cursor = conn.cursor()
+          
+          # extras.execute_values робить швидкий масовий інсерт (bulk insert)
+          extras.execute_values(cursor, insert_query, values_to_insert)
+          
+          conn.commit()
+          print(f"Успішно збережено {len(values_to_insert)} записів до бази даних!")
+          
+          cursor.close()
+          conn.close()
+      except Exception as e:
+          print(f"Критична помилка при роботі з PostgreSQL: {e}")
+          raise

@@ -1,0 +1,19 @@
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+
+# Secrets — must never live inside the repo
+.env
+*.secrets.json
+service-account*.json
+credentials*.json
+token.json
+
+# OS / editor noise
+~$*.docx
+~$*.doc
+*.tmp
+.claude/
