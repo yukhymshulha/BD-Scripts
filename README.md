@@ -27,10 +27,20 @@ SECRET_MS_GRAPH_CLIENT_SECRET=<base64-encoded secret>
 (Kestra expects secret values base64-encoded; see the [Kestra secrets docs](https://kestra.io/docs/concepts/secret)). The local Postgres password (`kestra`/`kestra`) is left as the standard Kestra quickstart default — fine for the local-only dev stack in `docker-compose.yml`.
 
 ### Notebook (`Colab/SharePoint2GSheet.ipynb`)
-Requires a Google service account JSON key with Editor access on the target spreadsheets, kept **outside** this repository (e.g. `~/.secrets/google/...`). Each report cell points `SERVICE_ACCOUNT_FILE` at that path. The Microsoft Graph client secret is read from the `MS_GRAPH_CLIENT_SECRET` environment variable — set it in the shell/kernel before running the notebook. Install dependencies from the `pip install` cell at the top of each notebook section.
+Requires a Google service account JSON key with Editor access on the target spreadsheets, kept **outside** this repository (e.g. `~/.secrets/google/...`). Each report cell points `SERVICE_ACCOUNT_FILE` at that path. The Microsoft Graph client secret is read from the `MS_GRAPH_CLIENT_SECRET` environment variable via a local `Colab/.env` file (gitignored, loaded automatically with `python-dotenv` — create it yourself with `MS_GRAPH_CLIENT_SECRET=<value>`, it's never committed). Install dependencies from the `pip install` cell at the top of each notebook section.
 
 ### `mover.js`
 Google Apps Script, meant to be pasted into the Apps Script editor bound to the destination Google Sheets — not run from this repo directly.
+
+## One-time git setup (per clone)
+
+Running the notebook rewrites its cell outputs/execution counts on every execution, which would otherwise show up as noisy diffs on every commit. A git clean filter strips them automatically when staging — register it once per clone:
+```
+git config filter.nbstrip.clean "node scripts/strip_notebook_output.js"
+git config filter.nbstrip.smudge cat
+git config filter.nbstrip.required true
+```
+(Requires Node.js on PATH.) After this, `.ipynb` files keep their real outputs on disk — only what gets committed is stripped, so re-running cells locally won't dirty `git status` unless the actual code changed.
 
 ## Known issues / TODO
 
